@@ -8,6 +8,7 @@ def referenceAppgitRepo = "spring-petclinic"
 def regressionTestGitRepo = "adop-cartridge-java-regression-tests"
 def referenceAppGitUrl = "ssh://jenkins@gerrit:29418/${PROJECT_NAME}/" + referenceAppgitRepo
 def regressionTestGitUrl = "ssh://jenkins@gerrit:29418/${PROJECT_NAME}/" + regressionTestGitRepo
+def slaveLabel = projectFolderName.replaceAll('/', '_') + "_slave"
 
 // Jobs
 def buildAppJob = freeStyleJob(projectFolderName + "/Reference_Application_Build")
@@ -52,7 +53,7 @@ buildAppJob.with {
         env('WORKSPACE_NAME', workspaceFolderName)
         env('PROJECT_NAME', projectFolderName)
     }
-    label("java8")
+    label(slaveLabel)
     triggers {
         gerrit {
             events {
@@ -100,7 +101,7 @@ unitTestJob.with {
         env('WORKSPACE_NAME', workspaceFolderName)
         env('PROJECT_NAME', projectFolderName)
     }
-    label("java8")
+    label(slaveLabel)
     steps {
         copyArtifacts("Reference_Application_Build") {
             buildSelector {
@@ -143,7 +144,7 @@ codeAnalysisJob.with {
         maskPasswords()
         sshAgent("adop-jenkins-master")
     }
-    label("java8")
+    label(slaveLabel)
     steps {
         copyArtifacts('Reference_Application_Unit_Tests') {
             buildSelector {
@@ -196,7 +197,7 @@ deployJob.with {
         env('WORKSPACE_NAME', workspaceFolderName)
         env('PROJECT_NAME', projectFolderName)
     }
-    label("docker")
+    label(slaveLabel)
     steps {
         copyArtifacts("Reference_Application_Build") {
             buildSelector {
@@ -267,16 +268,17 @@ regressionTestJob.with {
         env('WORKSPACE_NAME', workspaceFolderName)
         env('PROJECT_NAME', projectFolderName)
     }
-    label("java8")
+    label(slaveLabel)
     steps {
         shell('''
             |export SERVICE_NAME="$(echo ${PROJECT_NAME} | tr '/' '_')_${ENVIRONMENT_NAME}"
+			|export JENKINS_SLAVE_LABEL="$(echo ${PROJECT_NAME} | tr '/' '_')_slave"
             |echo "SERVICE_NAME=${SERVICE_NAME}" > env.properties
             |
             |echo "Running automation tests"
             |echo "Setting values for container, project and app names"
             |CONTAINER_NAME="owasp_zap-"${SERVICE_NAME}${BUILD_NUMBER}
-            |APP_IP=$( docker inspect --format '{{ .NetworkSettings.Networks.'"$DOCKER_NETWORK_NAME"'.IPAddress }}' ${SERVICE_NAME} )
+            |APP_IP=$(docker inspect ${SERVICE_NAME} --format '{{ .NetworkSettings.Networks.'"$DOCKER_NETWORK_NAME"'.IPAddress }}')
             |APP_URL=http://${APP_IP}:8080/petclinic
             |ZAP_PORT="9090"
             |
@@ -285,11 +287,10 @@ regressionTestJob.with {
             |echo ZAP_PORT=$ZAP_PORT >> env.properties
             |
             |echo "Starting OWASP ZAP Intercepting Proxy"
-            |JOB_WORKSPACE_PATH="/var/lib/docker/volumes/jenkins_slave_home/_data/${PROJECT_NAME}/Reference_Application_Regression_Tests"
-            |#JOB_WORKSPACE_PATH="$(docker inspect --format '{{ .Mounts.Networks.'"$DOCKER_NETWORK_NAME"'.IPAddress }}' ${CONTAINER_NAME} )/${JOB_NAME}"
+            |JOB_WORKSPACE_PATH=$(docker volume inspect ${JENKINS_SLAVE_LABEL}_home --format '{{.Mountpoint}}')/${PROJECT_NAME}/Reference_Application_Regression_Tests
             |echo JOB_WORKSPACE_PATH=$JOB_WORKSPACE_PATH >> env.properties
             |mkdir -p ${JOB_WORKSPACE_PATH}/owasp_zap_proxy/test-results
-            |docker run -it -d --net=$DOCKER_NETWORK_NAME -v ${JOB_WORKSPACE_PATH}/owasp_zap_proxy/test-results/:/opt/zaproxy/test-results/ -e affinity:container==jenkins-slave --name ${CONTAINER_NAME} -P nhantd/owasp_zap start zap-test
+            |docker run -it -d --net=$DOCKER_NETWORK_NAME -v ${JOB_WORKSPACE_PATH}/owasp_zap_proxy/test-results/:/opt/zaproxy/test-results/ -e affinity:container==${JENKINS_SLAVE_LABEL} --name ${CONTAINER_NAME} -P nhantd/owasp_zap start zap-test
             |
             |sleep 30s
             |ZAP_IP=$( docker inspect --format '{{ .NetworkSettings.Networks.'"$DOCKER_NETWORK_NAME"'.IPAddress }}' ${CONTAINER_NAME} )
@@ -311,7 +312,7 @@ regressionTestJob.with {
             |docker stop ${CONTAINER_NAME}
             |docker rm ${CONTAINER_NAME}
             |
-            |docker run -i --net=$DOCKER_NETWORK_NAME -v ${JOB_WORKSPACE_PATH}/owasp_zap_proxy/test-results/:/opt/zaproxy/test-results/ -e affinity:container==jenkins-slave --name ${CONTAINER_NAME} -P nhantd/owasp_zap stop zap-test
+            |docker run -i --net=$DOCKER_NETWORK_NAME -v ${JOB_WORKSPACE_PATH}/owasp_zap_proxy/test-results/:/opt/zaproxy/test-results/ -e affinity:container==${JENKINS_SLAVE_LABEL} --name ${CONTAINER_NAME} -P nhantd/owasp_zap stop zap-test
             |docker cp ${CONTAINER_NAME}:/opt/zaproxy/test-results/zap-test-report.html .
             |sleep 10s
             |docker rm ${CONTAINER_NAME}
@@ -371,7 +372,7 @@ performanceTestJob.with {
         env('PROJECT_NAME', projectFolderName)
         env('JMETER_TESTDIR', 'jmeter-test')
     }
-    label("docker")
+    label(slaveLabel)
     steps {
         copyArtifacts("Reference_Application_Build") {
             buildSelector {
@@ -451,7 +452,7 @@ deployJobToProdA.with {
         env('WORKSPACE_NAME', workspaceFolderName)
         env('PROJECT_NAME', projectFolderName)
     }
-    label("docker")
+    label(slaveLabel)
     steps {
         copyArtifacts("Reference_Application_Build") {
             buildSelector {
@@ -509,7 +510,7 @@ deployJobToProdB.with {
         env('WORKSPACE_NAME', workspaceFolderName)
         env('PROJECT_NAME', projectFolderName)
     }
-    label("docker")
+    label(slaveLabel)
     steps {
         copyArtifacts("Reference_Application_Build") {
             buildSelector {
